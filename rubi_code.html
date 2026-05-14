@@ -1,0 +1,324 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>自動ふりがな（ルビ）付与ツール</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://cdn.jsdelivr.net/npm/kuromoji@0.1.2/build/kuromoji.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/mammoth@1.8.0/mammoth.browser.min.js"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          fontFamily: {
+            sans: ['Inter', 'Noto Sans JP', 'Hiragino Sans', 'Yu Gothic', 'Meiryo', 'sans-serif']
+          }
+        }
+      }
+    };
+  </script>
+  <style>
+    body {
+      font-family: Inter, "Noto Sans JP", "Hiragino Sans", "Yu Gothic", Meiryo, sans-serif;
+    }
+
+    ruby {
+      ruby-position: over;
+    }
+
+    rt {
+      font-size: 0.58em;
+      color: #2563eb;
+      user-select: text;
+    }
+
+    #outputArea:empty::before {
+      content: "ここにルビ付きテキストが表示されます。表示後はこのエリア内で直接編集できます。";
+      color: #94a3b8;
+    }
+
+    .checker-bg {
+      background-image:
+        linear-gradient(45deg, rgba(59, 130, 246, 0.035) 25%, transparent 25%),
+        linear-gradient(-45deg, rgba(59, 130, 246, 0.035) 25%, transparent 25%),
+        linear-gradient(45deg, transparent 75%, rgba(59, 130, 246, 0.035) 75%),
+        linear-gradient(-45deg, transparent 75%, rgba(59, 130, 246, 0.035) 75%);
+      background-size: 22px 22px;
+      background-position: 0 0, 0 11px, 11px -11px, -11px 0px;
+    }
+  </style>
+</head>
+<body class="min-h-screen bg-slate-100 text-slate-800">
+  <div id="loadingScreen" class="fixed inset-0 z-50 flex items-center justify-center bg-white">
+    <div class="rounded-3xl border border-blue-100 bg-white p-10 text-center shadow-2xl shadow-blue-100">
+      <div class="mx-auto mb-5 h-14 w-14 animate-spin rounded-full border-4 border-blue-100 border-t-blue-600"></div>
+      <h1 class="text-xl font-bold text-slate-900">Kuromoji辞書を読み込み中</h1>
+      <p class="mt-2 text-sm text-slate-500">初回は数秒かかることがあります。しばらくお待ちください。</p>
+    </div>
+  </div>
+
+  <main id="app" class="hidden min-h-screen">
+    <header class="border-b border-blue-100 bg-white/90 backdrop-blur">
+      <div class="mx-auto flex max-w-7xl flex-col gap-4 px-4 py-6 sm:px-6 lg:flex-row lg:items-center lg:justify-between lg:px-8">
+        <div>
+          <p class="text-sm font-semibold uppercase tracking-[0.25em] text-blue-600">Ruby Generator</p>
+          <h1 class="mt-2 text-3xl font-black tracking-tight text-slate-950 sm:text-4xl">自動ふりがな（ルビ）付与ツール</h1>
+          <p class="mt-2 max-w-2xl text-sm leading-6 text-slate-600">テキスト・Word文書を読み込み、カスタム辞書を優先して漢字にルビを自動付与します。結果は直接編集してWord向けに保存できます。</p>
+        </div>
+        <div id="tokenizerStatus" class="inline-flex items-center rounded-full bg-emerald-50 px-4 py-2 text-sm font-semibold text-emerald-700 ring-1 ring-emerald-200">
+          <span class="mr-2 h-2.5 w-2.5 rounded-full bg-emerald-500"></span>辞書読み込み完了
+        </div>
+      </div>
+    </header>
+
+    <section class="mx-auto grid max-w-7xl gap-6 px-4 py-6 sm:px-6 lg:grid-cols-2 lg:px-8">
+      <div class="space-y-6">
+        <section class="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
+          <div class="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <h2 class="text-lg font-bold text-slate-950">入力エリア</h2>
+              <p class="text-sm text-slate-500">直接入力、または .txt / .docx ファイルを読み込めます。</p>
+            </div>
+            <label class="inline-flex cursor-pointer items-center justify-center rounded-xl bg-blue-600 px-4 py-2 text-sm font-bold text-white shadow-sm transition hover:bg-blue-700 focus-within:ring-4 focus-within:ring-blue-200">
+              原文ファイル読込
+              <input id="sourceFile" type="file" accept=".txt,.docx,text/plain,application/vnd.openxmlformats-officedocument.wordprocessingml.document" class="sr-only" />
+            </label>
+          </div>
+          <textarea id="sourceText" class="min-h-[390px] w-full resize-y rounded-2xl border border-slate-200 bg-slate-50 p-4 text-base leading-8 outline-none transition placeholder:text-slate-400 focus:border-blue-400 focus:bg-white focus:ring-4 focus:ring-blue-100" placeholder="例：今日は総会資料を確認し、議案について説明します。"></textarea>
+        </section>
+
+        <section class="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
+          <div class="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <h2 class="text-lg font-bold text-slate-950">カスタム辞書</h2>
+              <p class="text-sm text-slate-500">1行に「単語,ふりがな」または「単語 ふりがな」。長い単語を優先します。</p>
+            </div>
+            <label class="inline-flex cursor-pointer items-center justify-center rounded-xl bg-slate-800 px-4 py-2 text-sm font-bold text-white shadow-sm transition hover:bg-slate-950 focus-within:ring-4 focus-within:ring-slate-200">
+              辞書ファイル追記
+              <input id="dictFile" type="file" accept=".txt,.csv,.docx,text/plain,text/csv,application/vnd.openxmlformats-officedocument.wordprocessingml.document" class="sr-only" />
+            </label>
+          </div>
+          <textarea id="customDict" class="min-h-[190px] w-full resize-y rounded-2xl border border-slate-200 bg-slate-50 p-4 font-mono text-sm leading-7 outline-none transition placeholder:text-slate-400 focus:border-blue-400 focus:bg-white focus:ring-4 focus:ring-blue-100" placeholder="例：\n総会資料,そうかいしりょう\n議案 ぎあん"></textarea>
+        </section>
+      </div>
+
+      <div class="space-y-6">
+        <section class="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
+          <div class="mb-4 flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
+            <div>
+              <h2 class="text-lg font-bold text-slate-950">出力エリア</h2>
+              <p class="text-sm text-slate-500">ルビ付きHTMLをリッチテキストとして表示します。直接編集できます。</p>
+            </div>
+            <div class="flex flex-wrap gap-2">
+              <button id="generateBtn" class="rounded-xl bg-blue-600 px-4 py-2 text-sm font-bold text-white shadow-sm transition hover:bg-blue-700 focus:outline-none focus:ring-4 focus:ring-blue-200 disabled:cursor-not-allowed disabled:bg-slate-300">ふりがなを付ける</button>
+              <button id="copyBtn" class="rounded-xl border border-blue-200 bg-blue-50 px-4 py-2 text-sm font-bold text-blue-700 transition hover:bg-blue-100 focus:outline-none focus:ring-4 focus:ring-blue-100">コピーする</button>
+              <button id="downloadBtn" class="rounded-xl border border-slate-300 bg-white px-4 py-2 text-sm font-bold text-slate-700 transition hover:bg-slate-50 focus:outline-none focus:ring-4 focus:ring-slate-100">Wordとして保存</button>
+            </div>
+          </div>
+          <div id="outputArea" contenteditable="true" class="checker-bg min-h-[640px] overflow-auto rounded-2xl border border-slate-200 bg-white p-5 text-lg leading-10 outline-none transition focus:border-blue-400 focus:ring-4 focus:ring-blue-100"></div>
+        </section>
+        <div id="message" class="hidden rounded-2xl border px-4 py-3 text-sm font-semibold"></div>
+      </div>
+    </section>
+  </main>
+
+  <script>
+    let tokenizer = null;
+
+    const sourceText = document.getElementById('sourceText');
+    const customDict = document.getElementById('customDict');
+    const sourceFile = document.getElementById('sourceFile');
+    const dictFile = document.getElementById('dictFile');
+    const outputArea = document.getElementById('outputArea');
+    const generateBtn = document.getElementById('generateBtn');
+    const copyBtn = document.getElementById('copyBtn');
+    const downloadBtn = document.getElementById('downloadBtn');
+    const message = document.getElementById('message');
+
+    const hasKanji = (text) => /[一-龯々〆ヵヶ]/.test(text);
+    const isHiragana = (text) => /^[ぁ-んー]+$/.test(text);
+    const escapeHtml = (text) => text.replace(/[&<>"]/g, (char) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[char]));
+    const toHiragana = (text) => text.replace(/[ァ-ン]/g, (char) => String.fromCharCode(char.charCodeAt(0) - 0x60));
+
+    function showMessage(text, type = 'success') {
+      message.textContent = text;
+      message.className = `rounded-2xl border px-4 py-3 text-sm font-semibold ${type === 'error' ? 'border-red-200 bg-red-50 text-red-700' : 'border-emerald-200 bg-emerald-50 text-emerald-700'}`;
+      message.classList.remove('hidden');
+      window.clearTimeout(showMessage.timer);
+      showMessage.timer = window.setTimeout(() => message.classList.add('hidden'), 3200);
+    }
+
+    function parseCustomDictionary(text) {
+      return text.split(/\r?\n/)
+        .map((line) => line.trim())
+        .filter((line) => line && !line.startsWith('#'))
+        .map((line) => {
+          const comma = line.match(/^(.+?)[,，]\s*(.+)$/);
+          if (comma) return { word: comma[1].trim(), ruby: comma[2].trim() };
+          const space = line.match(/^(.+?)\s+(.+)$/);
+          if (space) return { word: space[1].trim(), ruby: space[2].trim() };
+          return null;
+        })
+        .filter((entry) => entry && entry.word && entry.ruby)
+        .sort((a, b) => b.word.length - a.word.length);
+    }
+
+    function applyCustomDictionary(text, entries) {
+      const segments = [];
+      let plain = '';
+      let index = 0;
+
+      const flushPlain = () => {
+        if (plain) {
+          segments.push({ type: 'text', value: plain });
+          plain = '';
+        }
+      };
+
+      while (index < text.length) {
+        const found = entries.find((entry) => text.startsWith(entry.word, index));
+        if (found) {
+          flushPlain();
+          segments.push({ type: 'html', value: `<ruby>${escapeHtml(found.word)}<rt>${escapeHtml(found.ruby)}</rt></ruby>` });
+          index += found.word.length;
+        } else {
+          plain += text[index];
+          index += 1;
+        }
+      }
+      flushPlain();
+      return segments;
+    }
+
+    function rubyForToken(token) {
+      const surface = token.surface_form || '';
+      if (!surface || !hasKanji(surface)) return escapeHtml(surface);
+
+      const rawReading = token.reading && token.reading !== '*' ? token.reading : '';
+      const reading = toHiragana(rawReading);
+      if (!reading) return escapeHtml(surface);
+
+      const trailingKana = surface.match(/[ぁ-んー]+$/)?.[0] || '';
+      if (trailingKana && reading.endsWith(trailingKana)) {
+        const base = surface.slice(0, -trailingKana.length);
+        const baseReading = reading.slice(0, -trailingKana.length);
+        if (base && baseReading && hasKanji(base)) {
+          return `<ruby>${escapeHtml(base)}<rt>${escapeHtml(baseReading)}</rt></ruby>${escapeHtml(trailingKana)}`;
+        }
+      }
+
+      return `<ruby>${escapeHtml(surface)}<rt>${escapeHtml(reading)}</rt></ruby>`;
+    }
+
+    function autoRubyText(text) {
+      if (!text) return '';
+      return tokenizer.tokenize(text).map(rubyForToken).join('');
+    }
+
+    function renderWithRuby(text, dictText) {
+      const entries = parseCustomDictionary(dictText);
+      const customApplied = applyCustomDictionary(text, entries);
+      return customApplied.map((segment) => {
+        if (segment.type === 'html') return segment.value;
+        return autoRubyText(segment.value);
+      }).join('').replace(/\r?\n/g, '<br>');
+    }
+
+    async function readFileAsText(file) {
+      const ext = file.name.split('.').pop().toLowerCase();
+      if (ext === 'docx') {
+        const arrayBuffer = await file.arrayBuffer();
+        const result = await mammoth.extractRawText({ arrayBuffer });
+        return result.value || '';
+      }
+      return await file.text();
+    }
+
+    sourceFile.addEventListener('change', async (event) => {
+      const file = event.target.files[0];
+      if (!file) return;
+      try {
+        sourceText.value = await readFileAsText(file);
+        showMessage(`「${file.name}」を入力エリアに読み込みました。`);
+      } catch (error) {
+        showMessage('ファイルの読み込みに失敗しました。対応形式を確認してください。', 'error');
+      } finally {
+        event.target.value = '';
+      }
+    });
+
+    dictFile.addEventListener('change', async (event) => {
+      const file = event.target.files[0];
+      if (!file) return;
+      try {
+        const text = await readFileAsText(file);
+        customDict.value += `${customDict.value.trim() ? '\n' : ''}${text.trim()}`;
+        showMessage(`「${file.name}」をカスタム辞書に追記しました。`);
+      } catch (error) {
+        showMessage('辞書ファイルの読み込みに失敗しました。対応形式を確認してください。', 'error');
+      } finally {
+        event.target.value = '';
+      }
+    });
+
+    generateBtn.addEventListener('click', () => {
+      if (!tokenizer) {
+        showMessage('Kuromoji辞書の読み込みがまだ完了していません。', 'error');
+        return;
+      }
+      generateBtn.disabled = true;
+      generateBtn.textContent = '処理中...';
+      window.setTimeout(() => {
+        try {
+          outputArea.innerHTML = renderWithRuby(sourceText.value, customDict.value);
+          showMessage('ふりがなを付与しました。出力エリアで直接編集できます。');
+        } catch (error) {
+          console.error(error);
+          showMessage('ルビ付与処理中にエラーが発生しました。', 'error');
+        } finally {
+          generateBtn.disabled = false;
+          generateBtn.textContent = 'ふりがなを付ける';
+        }
+      }, 20);
+    });
+
+    copyBtn.addEventListener('click', () => {
+      const range = document.createRange();
+      range.selectNodeContents(outputArea);
+      const selection = window.getSelection();
+      selection.removeAllRanges();
+      selection.addRange(range);
+      const ok = document.execCommand('copy');
+      selection.removeAllRanges();
+      showMessage(ok ? 'リッチテキストとしてコピーしました。Wordに貼り付けできます。' : 'コピーに失敗しました。', ok ? 'success' : 'error');
+    });
+
+    downloadBtn.addEventListener('click', () => {
+      const bodyHtml = outputArea.innerHTML || '';
+      const docHtml = `<!DOCTYPE html><html><head><meta charset="UTF-8"><title>ルビ付き文書</title><style>body{font-family:"Yu Gothic",Meiryo,sans-serif;line-height:2;}rt{font-size:0.55em;color:#2563eb;}</style></head><body>${bodyHtml}</body></html>`;
+      const blob = new Blob(['\ufeff', docHtml], { type: 'application/msword' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `ruby-document-${new Date().toISOString().slice(0, 10)}.doc`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+      showMessage('Wordで開ける .doc ファイルを保存しました。');
+    });
+
+    kuromoji.builder({ dicPath: 'https://cdn.jsdelivr.net/npm/kuromoji@0.1.2/dict/' }).build((error, builtTokenizer) => {
+      if (error) {
+        document.getElementById('loadingScreen').innerHTML = '<div class="rounded-3xl border border-red-200 bg-red-50 p-8 text-center text-red-700"><h1 class="text-xl font-bold">辞書の読み込みに失敗しました</h1><p class="mt-2 text-sm">ネットワーク接続を確認して再読み込みしてください。</p></div>';
+        console.error(error);
+        return;
+      }
+      tokenizer = builtTokenizer;
+      document.getElementById('loadingScreen').classList.add('hidden');
+      document.getElementById('app').classList.remove('hidden');
+    });
+  </script>
+</body>
+</html>
