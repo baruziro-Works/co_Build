@@ -1,0 +1,567 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>豊川中央キリスト教会 月間予定表作成</title>
+<style>
+/* ===== 画面表示用 ===== */
+* { box-sizing:border-box; margin:0; padding:0; }
+:root {
+  --accent:#2d6a4f; --accent2:#52b788;
+  --border:#999; --sunday-bg:#eef6ee;
+  --sun-col:#7b2d2d; --sat-col:#1a3a6b;
+}
+body { font-family:'Hiragino Kaku Gothic Pro','Meiryo','MS Gothic',sans-serif; background:#e8f5e9; padding:20px; }
+
+#control-panel { background:white; border-radius:12px; padding:20px; max-width:860px; margin:0 auto 20px; box-shadow:0 4px 16px rgba(0,0,0,.1); }
+#control-panel h1 { font-size:1.1rem; color:var(--accent); margin-bottom:10px; border-bottom:2px solid var(--accent2); padding-bottom:6px; }
+.control-row { display:flex; flex-wrap:wrap; gap:8px; align-items:flex-end; margin-bottom:8px; }
+.cg { display:flex; flex-direction:column; gap:2px; }
+.cg label { font-size:.72rem; color:#555; font-weight:bold; }
+.cg input,.cg select { padding:5px 7px; border:1px solid var(--border); border-radius:4px; font-size:.86rem; font-family:inherit; }
+.btn { padding:6px 14px; border:none; border-radius:4px; cursor:pointer; font-size:.86rem; font-family:inherit; font-weight:bold; }
+.btn-p  { background:var(--accent); color:white; }
+.btn-s  { background:#6c757d; color:white; }
+.btn-pr { background:#343a40; color:white; }
+.btn-pdf{ background:#c0392b; color:white; }
+.info-box { background:#f0faf4; border-left:4px solid var(--accent2); padding:8px 12px; border-radius:4px; font-size:.73rem; color:#333; margin-top:8px; line-height:1.85; }
+#status { text-align:center; padding:6px; color:#c00; font-size:.88rem; min-height:1.4em; }
+#debug  { background:#fff8e1; border:1px solid #ffc107; border-radius:6px; padding:9px; max-width:860px; margin:0 auto 8px; font-size:.72rem; display:none; white-space:pre-wrap; }
+
+/* ===== 予定表本体（画面・印刷共通） ===== */
+#preview-area { max-width:860px; margin:0 auto; }
+
+.schedule-wrapper {
+  background:white;
+  width:100%;
+  font-family:'Hiragino Kaku Gothic Pro','Meiryo','MS Gothic',sans-serif;
+}
+
+.schedule-title { text-align:center; font-size:1.3rem; font-weight:bold; margin-bottom:4px; }
+.theme-verse    { text-align:center; font-size:.78rem; color:#333; margin-bottom:8px; line-height:1.7; }
+
+/* 上部（賛美＋月初平日）：左46%右54%で週ブロックと揃える */
+.top-table { width:100%; border-collapse:collapse; border:1px solid var(--border); margin-bottom:4px; }
+.top-table td { vertical-align:top; }
+.praise-cell {
+  width:46%; border-right:1px solid var(--border);
+  padding:5px 9px; font-size:.82rem; line-height:1.9;
+}
+.praise-cell .pt { font-weight:bold; font-size:.84rem; border-bottom:1px solid #ccc; padding-bottom:2px; margin-bottom:3px; }
+.predays-cell { width:54%; padding:0; }
+
+/* 共通テーブルスタイル */
+.pre-table, .wd-table { width:100%; border-collapse:collapse; font-size:.8rem; }
+.pre-table td, .wd-table td { padding:2px 5px; border-bottom:1px solid #eee; vertical-align:middle; }
+.pre-table .dc, .wd-table .dc { white-space:nowrap; width:3.3em; font-weight:bold; }
+/* ★聖書箇所列：折り返し禁止・右寄せ・幅固定 */
+.pre-table .rc, .wd-table .rc {
+  text-align:right; font-size:.65rem; color:#555;
+  width:7.5em; overflow:hidden;
+  vertical-align:middle; line-height:1.3;
+}
+.sd-reading span { display:block; }
+.sat { color:var(--sat-col); }
+
+.svc-info { font-size:.82rem; color:#222; padding:3px 2px; border-top:1px solid var(--border); border-bottom:1px solid var(--border); margin-bottom:4px; font-weight:bold; }
+
+/* 週ブロック：左右幅固定（table-layout:fixed で必ず46/54） */
+.week-block { width:100%; border-collapse:collapse; border:1px solid var(--border); margin-bottom:3px; table-layout:fixed; display:table; }
+.week-left  { display:table-cell; width:46%; border-right:1px solid var(--border); vertical-align:top; overflow:hidden; max-width:46%; }
+.week-right { display:table-cell; width:54%; vertical-align:top; overflow:hidden; max-width:54%; }
+
+/* 日曜ヘッダー：必ず1行・はみ出しは省略 */
+.sunday-row {
+  background:var(--sunday-bg);
+  border-bottom:1px solid var(--border);
+  padding:0;
+}
+/* 1行目：日付＋日曜行事＋聖書箇所 */
+.sunday-row-top {
+  display:flex; align-items:baseline;
+  padding:3px 6px; overflow:hidden; white-space:nowrap;
+}
+/* 2行目：祈りと献金（長くても全部表示） */
+.sunday-row-sub {
+  padding:1px 6px 3px 6px;
+  font-size:.76rem; color:var(--sun-col);
+  border-top:1px dotted #ccc;
+  white-space:normal; line-height:1.4;
+}
+.sd-num    { font-size:1.0rem; color:var(--sun-col); font-weight:bold; flex-shrink:0; margin-right:4px; }
+.sd-events { flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:.78rem; }
+.sd-reading {
+  flex-shrink:0; font-size:.62rem; color:#555;
+  text-align:right; font-weight:normal;
+  padding-left:4px; overflow:hidden; max-width:8.5em;
+  line-height:1.3;
+}
+.ev-tag { color:var(--sat-col); }
+.sp-tag { color:var(--sun-col); }
+
+.servant-table { width:100%; border-collapse:collapse; font-size:.8rem; }
+.servant-table td { padding:1px 5px; border-bottom:1px solid #eee; vertical-align:top; }
+.servant-table .role { color:#555; white-space:nowrap; width:2.4em; font-size:.76rem; }
+
+.footer-note { margin-top:6px; font-size:.8rem; color:#333; display:flex; justify-content:space-between; flex-wrap:wrap; gap:4px; border-top:1px solid #ccc; padding-top:4px; }
+
+/* ===== 印刷・PDF用（A4縦1枚・文字最大化） ===== */
+@media print {
+  @page {
+    size: A4 portrait;
+    margin: 5mm 6mm 5mm 6mm;
+  }
+  html, body { background:white !important; padding:0 !important; margin:0 !important; }
+  #control-panel, #status, #debug { display:none !important; }
+  #preview-area { max-width:100% !important; margin:0 !important; padding:0 !important; }
+  /* scale()でA4幅(198mm)に縮小しながら文字を最大化 */
+  .schedule-wrapper {
+    box-shadow:none !important; padding:0 !important;
+    transform-origin: top left;
+    transform: scale(0.82);
+    width: 122% !important;  /* 100/0.82 ≈ 122% で元の幅を補正 */
+  }
+
+  /* 画面サイズのまま（大きめ）のフォントを維持 */
+  .schedule-title { font-size:1.3rem; margin-bottom:4px; }
+  .theme-verse    { font-size:.78rem; margin-bottom:6px; line-height:1.65; }
+  .praise-cell    { font-size:.82rem; padding:5px 9px; line-height:1.9; }
+  .praise-cell .pt{ font-size:.84rem; }
+  .pre-table td, .wd-table td { padding:2px 5px; }
+  .pre-table, .wd-table { font-size:.80rem; }
+  .pre-table .rc, .wd-table .rc { font-size:.68rem; width:7.5em; }
+  .svc-info       { font-size:.82rem; padding:3px 2px; margin-bottom:4px; }
+  .servant-table  { font-size:.80rem; }
+  .servant-table td { padding:2px 5px; }
+  .servant-table .role { font-size:.76rem; }
+  .sd-num         { font-size:1.0rem; }
+  .sd-events      { font-size:.78rem; }
+  .sd-reading     { font-size:.65rem; max-width:8.5em; }
+  .sunday-row-sub { font-size:.76rem; }
+  .footer-note    { font-size:.80rem; margin-top:5px; padding-top:4px; }
+  .week-block     { margin-bottom:3px; }
+  .top-table      { margin-bottom:4px; }
+}
+</style>
+</head>
+<body>
+
+<!-- ===== コントロールパネル ===== -->
+<div id="control-panel">
+  <h1>⛪ 豊川中央キリスト教会 月間予定表作成ツール</h1>
+  <div class="control-row">
+    <div class="cg"><label>年</label>
+      <input type="number" id="iy" value="2026" min="2020" max="2040" style="width:74px">
+    </div>
+    <div class="cg"><label>月</label>
+      <select id="im" style="width:66px">
+        <option value="1">1月</option><option value="2">2月</option><option value="3">3月</option>
+        <option value="4">4月</option><option value="5" selected>5月</option><option value="6">6月</option>
+        <option value="7">7月</option><option value="8">8月</option><option value="9">9月</option>
+        <option value="10">10月</option><option value="11">11月</option><option value="12">12月</option>
+      </select>
+    </div>
+    <div class="cg"><label>GoogleスプレッドシートID</label>
+      <input type="text" id="sid" placeholder="スプレッドシートIDを貼り付け" style="width:340px">
+    </div>
+    <button class="btn btn-p"   onclick="loadAndGenerate()">📋 予定表を生成</button>
+    <button class="btn btn-pr"  onclick="window.print()">🖨️ 印刷・PDF保存（A4）</button>
+  </div>
+  <div class="control-row">
+    <button class="btn btn-s" onclick="useSampleData()">📝 サンプルデータ（5月）</button>
+    <button class="btn btn-s" style="background:#888" onclick="toggleDebug()">🔍 データ確認</button>
+  </div>
+  <div class="info-box">
+    <strong>🖨️ A4印刷・PDF保存：</strong>「印刷/PDF保存」ボタン → 印刷ダイアログで「送信先：PDFに保存」を選ぶとPDFになります<br>
+    <strong>📌 スプレッドシート設定：</strong>「共有」→「リンクを知っている全員」→「<strong>閲覧者</strong>」→ URLのIDを貼り付け<br>
+    <strong>シート構成（1行目はヘッダー行）：</strong><br>
+    ・<strong>聖書箇所</strong>：A=日付(2026/05/01)、<strong>B=1箇所目、C=2箇所目</strong>（BにCtrl+Enterで改行して2箇所入力も可）<br>
+    ・<strong>賛美</strong>：A=年月(2026/05)、B=曲名1、C=曲名2、D=曲名3<br>
+    ・<strong>奉仕者</strong>：A=日付(日曜)、B=宣教、C=配餐、D=司会、E=奏楽、F=受付、G=祈祷、H=清掃<br>
+    ・<strong>行事</strong>：A=日付、B=行事内容（日曜・平日すべて。同日を複数行に分けてもOK）<br>
+    ・<strong>祈りの対象</strong>：A=年月(2026/05)、B=対象者名<br>
+    ・<strong>祈祷会</strong>：A=年月(2026/05)、B=「お休み」または時間（例：20:00-22:00）
+  </div>
+</div>
+
+<div id="status"></div>
+<div id="debug"></div>
+<div id="preview-area"></div>
+
+<script>
+const THEME  = "私たちは見えるものによらず、信仰によって歩んでいます。\nコリント人への手紙第二 5章7節";
+const CHURCH = "豊川中央キリスト教会";
+
+let D = { r1:{}, r2:{}, praise:{}, servants:{}, events:{}, target:{}, pm:{} };
+
+// ===== Googleスプレッドシート読み込み =====
+async function loadAndGenerate() {
+  const id = document.getElementById('sid').value.trim();
+  if (!id) { alert('スプレッドシートIDを入力してください。'); return; }
+  setStatus('📡 読み込み中...');
+  try {
+    D = { r1:{}, r2:{}, praise:{}, servants:{}, events:{}, target:{}, pm:{} };
+    for (const s of ['聖書箇所','賛美','奉仕者','行事','祈りの対象','祈祷会']) {
+      const url = `https://docs.google.com/spreadsheets/d/${id}/gviz/tq?tqx=out:csv&sheet=${encodeURIComponent(s)}`;
+      try {
+        const res = await fetch(url);
+        const txt = await res.text();
+        if (res.ok && !txt.includes('google.visualization.Query.setResponse')) {
+          parseSheet(s, txt);
+        } else {
+          console.warn('シートなし or アクセス不可: ' + s);
+        }
+      } catch(e2) { console.warn('シート読込エラー ' + s, e2); }
+    }
+    setStatus('');
+    showDebug();
+    generateSchedule();
+  } catch(e) {
+    setStatus('❌ 読み込みエラー：' + e.message);
+  }
+}
+
+// ===== CSV完全パース（セル内改行・ダブルクォート対応） =====
+function parseCSV(csv) {
+  const rows = [];
+  let row = [], cur = '', inQ = false;
+  for (let i = 0; i < csv.length; i++) {
+    const ch = csv[i];
+    if (ch === '"') {
+      if (inQ && csv[i+1] === '"') { cur += '"'; i++; }  // "" → "
+      else inQ = !inQ;
+    } else if (ch === ',' && !inQ) {
+      row.push(cur); cur = '';
+    } else if (!inQ && (ch === '\n' || ch === '\r')) {
+      if (ch === '\r' && csv[i+1] === '\n') i++;
+      row.push(cur); rows.push(row); row = []; cur = '';
+    } else {
+      cur += ch;
+    }
+  }
+  if (cur !== '' || row.length > 0) { row.push(cur); rows.push(row); }
+  return rows;
+}
+
+// 日付正規化: 任意形式 → YYYY/MM/DD
+function nd(s) {
+  if (!s) return '';
+  const t = s.trim().replace(/-/g, '/');
+  const m = t.match(/(\d{4})\/(\d{1,2})\/(\d{1,2})/);
+  if (m) return `${m[1]}/${m[2].padStart(2,'0')}/${m[3].padStart(2,'0')}`;
+  return '';
+}
+
+// 年月キー正規化: 任意形式 → YYYY/MM
+function ymKey(s) {
+  if (!s) return '';
+  const t = s.trim().replace(/-/g, '/');
+  const m = t.match(/(\d{4})\/(\d{1,2})/);
+  if (m) return `${m[1]}/${m[2].padStart(2,'0')}`;
+  return '';
+}
+
+// ===== シート解析 =====
+function parseSheet(name, csv) {
+  const all = parseCSV(csv);
+  if (all.length < 2) return;
+  const rows = all.slice(1);  // 1行目ヘッダースキップ
+
+  if (name === '聖書箇所') {
+    rows.forEach(r => {
+      const d = nd(r[0]);
+      if (!d) return;
+      // B列の中にセル内改行で2箇所入っている場合を分割
+      const raw = (r[1] || '').trim();
+      const lines = raw.split('\n').map(x => x.trim()).filter(Boolean);
+      D.r1[d] = lines[0] || '';
+      // 2箇所目：B列の2行目 > C列の順で優先
+      if (lines[1])      D.r2[d] = lines[1];
+      else if (r[2] && r[2].trim()) D.r2[d] = r[2].trim();
+    });
+
+  } else if (name === '賛美') {
+    rows.forEach(r => {
+      const ym = ymKey(r[0]);
+      if (ym) D.praise[ym] = { s1:(r[1]||'').trim(), s2:(r[2]||'').trim(), s3:(r[3]||'').trim() };
+    });
+
+  } else if (name === '奉仕者') {
+    rows.forEach(r => {
+      const d = nd(r[0]);
+      if (!d) return;
+      D.servants[d] = {
+        宣教:(r[1]||'').trim(), 配餐:(r[2]||'').trim(), 司会:(r[3]||'').trim(),
+        奏楽:(r[4]||'').trim(), 受付:(r[5]||'').trim(), 祈祷:(r[6]||'').trim(), 清掃:(r[7]||'').trim()
+      };
+    });
+
+  } else if (name === '行事') {
+    rows.forEach(r => {
+      const d = nd(r[0]);
+      if (!d || !r[1]) return;
+      if (!D.events[d]) D.events[d] = [];
+      D.events[d].push(r[1].trim());
+    });
+
+  } else if (name === '祈りの対象') {
+    rows.forEach(r => {
+      if (!r[0] || !r[1]) return;
+      const s = r[0].trim().replace(/-/g, '/');
+      // 日付形式(YYYY/M/D = スラッシュが2つ)は除外、年月形式のみ受け付ける
+      const slashCount = (s.match(/\//g) || []).length;
+      if (slashCount >= 2) return; // 日付形式なのでスキップ
+      const ym = ymKey(r[0]);
+      if (ym) D.target[ym] = r[1].trim();
+    });
+
+  } else if (name === '祈祷会') {
+    rows.forEach(r => {
+      const ym = ymKey(r[0]);
+      if (ym && r[1]) D.pm[ym] = r[1].trim();
+    });
+  }
+}
+
+// ===== デバッグ表示 =====
+function showDebug() {
+  const el = document.getElementById('debug');
+  const lines = [
+    '=== 読み込みデータ確認 ===',
+    '【祈りの対象】' + JSON.stringify(D.target),
+    '【祈祷会】'     + JSON.stringify(D.pm),
+    '【賛美】'       + JSON.stringify(D.praise),
+    '【行事キー】'   + Object.keys(D.events).sort().join(', '),
+    '【聖書r1 先頭5件】' + Object.keys(D.r1).slice(0,5).map(k=>k+'='+D.r1[k]).join(' / '),
+    '【聖書r2 先頭5件】' + Object.keys(D.r1).slice(0,5).map(k=>k+'='+D.r2[k]).join(' / '),
+  ];
+  el.textContent = lines.join('\n');
+}
+function toggleDebug() {
+  const el = document.getElementById('debug');
+  el.style.display = el.style.display === 'block' ? 'none' : 'block';
+}
+
+// ===== サンプルデータ（5月） =====
+function useSampleData() {
+  D = {
+    r1: {
+      '2026/05/01':'ルカ22:63-23:12','2026/05/02':'ルカ23:13-38',
+      '2026/05/03':'ルカ23:39-24:12','2026/05/04':'ルカ24:13-53',
+      '2026/05/05':'ヨハネ1:1-18',   '2026/05/06':'ヨハネ1:19-34',
+      '2026/05/07':'ヨハネ1:35-51',  '2026/05/08':'ヨハネ2:1-25',
+      '2026/05/09':'ヨハネ3:1-21',   '2026/05/10':'ヨハネ3:22-4:15',
+      '2026/05/11':'ヨハネ4:16-42',  '2026/05/12':'ヨハネ4:43-5:14',
+      '2026/05/13':'ヨハネ5:15-29',  '2026/05/14':'ヨハネ5:30-47',
+      '2026/05/15':'ヨハネ6:1-21',   '2026/05/16':'ヨハネ6:22-40',
+      '2026/05/17':'ヨハネ6:41-71',  '2026/05/18':'ヨハネ7:1-24',
+      '2026/05/19':'ヨハネ7:25-53',  '2026/05/20':'ヨハネ8:1-20',
+      '2026/05/21':'ヨハネ8:21-38',  '2026/05/22':'ヨハネ8:39-59',
+      '2026/05/23':'ヨハネ9:1-23',   '2026/05/24':'ヨハネ9:24-41',
+      '2026/05/25':'ヨハネ10:1-21',  '2026/05/26':'ヨハネ10:22-42',
+      '2026/05/27':'ヨハネ11:1-27',  '2026/05/28':'ヨハネ11:28-57',
+      '2026/05/29':'ヨハネ12:1-26',  '2026/05/30':'ヨハネ12:27-50',
+      '2026/05/31':'ヨハネ13:1-20',
+    },
+    r2: {
+      '2026/05/01':'Ⅱサムエル1:2',   '2026/05/02':'Ⅱサムエル3:5',
+      '2026/05/03':'Ⅱサムエル6:7',   '2026/05/04':'Ⅱサムエル8:10',
+      '2026/05/05':'Ⅱサムエル11:12', '2026/05/06':'Ⅱサムエル13:14',
+      '2026/05/07':'Ⅱサムエル15:16', '2026/05/08':'Ⅱサムエル17:18',
+      '2026/05/09':'Ⅱサムエル19:20', '2026/05/10':'Ⅱサムエル21:22',
+      '2026/05/11':'Ⅱサムエル23:24', '2026/05/12':'Ⅰ列王1:2',
+      '2026/05/13':'Ⅰ列王3:4',       '2026/05/14':'Ⅰ列王5:6',
+      '2026/05/15':'Ⅰ列王7',         '2026/05/16':'Ⅰ列王8',
+      '2026/05/17':'Ⅰ列王9:10',      '2026/05/18':'Ⅰ列王11:12',
+      '2026/05/19':'Ⅰ列王13:14',     '2026/05/20':'Ⅰ列王15:16',
+      '2026/05/21':'Ⅰ列王17:18',     '2026/05/22':'Ⅰ列王19:20',
+      '2026/05/23':'Ⅰ列王21:22',     '2026/05/24':'Ⅱ列王1:2',
+      '2026/05/25':'Ⅱ列王3:4',       '2026/05/26':'Ⅱ列王5:6',
+      '2026/05/27':'Ⅱ列王7:8',       '2026/05/28':'Ⅱ列王9:10',
+      '2026/05/29':'Ⅱ列王11:12',     '2026/05/30':'Ⅱ列王13:14',
+      '2026/05/31':'Ⅱ列王15:16',
+    },
+    praise: { '2026/05':{ s1:'主を仰ぎ見て　聖歌310', s2:'生けるものよ　LP22', s3:'主のみことば　LP5' } },
+    servants: {
+      '2026/05/03':{ 宣教:'田村昭二師', 配餐:'大島明子　村松有里', 司会:'大島明子', 奏楽:'後藤祐子　後藤真澄',   受付:'村松有里', 祈祷:'中尾富子　松下開代', 清掃:'' },
+      '2026/05/10':{ 宣教:'阿部真和',   配餐:'',                   司会:'後藤真澄', 奏楽:'後藤祐子　後藤万紀子', 受付:'大島桂子', 祈祷:'林幸子　牧園美恵子',   清掃:'有賀・行本・江川・大島桂・伴・伊藤' },
+      '2026/05/17':{ 宣教:'',           配餐:'',                   司会:'太田高祥', 奏楽:'後藤祐子　後藤万紀子', 受付:'有賀恵子', 祈祷:'鈴木絹子　林孝夫',     清掃:'' },
+      '2026/05/24':{ 宣教:'田村昭二師', 配餐:'',                   司会:'大島明子', 奏楽:'後藤祐子　後藤真澄',   受付:'中山 悟',  祈祷:'松下開代　太田高祥',   清掃:'田村・後藤真・中尾・松下開' },
+      '2026/05/31':{ 宣教:'',           配餐:'',                   司会:'後藤真澄', 奏楽:'後藤祐子　後藤万紀子', 受付:'山本智子', 祈祷:'中尾富子　阿部真和',   清掃:'' },
+    },
+    events: {
+      '2026/05/03':['聖餐式'],
+      '2026/05/10':['●定例役員会'],
+      '2026/05/17':['◆JV　母の日'],
+      '2026/05/07':['祈祷会 20:00-22:00'],
+      '2026/05/14':['祈祷会 20:00-22:00'],
+      '2026/05/21':['祈祷会 20:00-22:00'],
+      '2026/05/28':['祈祷会 20:00-22:00'],
+    },
+    target: { '2026/05':'田中直美アワナ宣教師のために' },
+    pm:     { '2026/05':'20:00-22:00' },
+  };
+  generateSchedule();
+}
+
+// ===== 祈りの対象テキストのクリーニング（聖書箇所が混入した場合に除去） =====
+// 聖書箇所パターン例: ヨハネ12:44、Ⅱ列王記8-9 など
+function cleanTarget(t) {
+  if (!t) return '';
+  // コロンや数字-数字のパターン（聖書箇所）が含まれる場合は除去
+  // ただし「のために」などの正常な文字列はそのまま
+  // 聖書書名パターン：漢字/カナ＋数字:数字 または 数字-数字
+  const biblePattern = /[ぁ-ヿa-zA-ZⅠ-Ⅹ一-鿿]+\d+[:：\-]\d+.*/;
+  // パターンにマッチする部分を除去
+  return t.replace(/[　\s]*[ぁ-ヿa-zA-ZⅠ-Ⅹ一-鿿]+\d+[:：]\d+[\d\-:：,，\s]*/g, '').trim();
+}
+
+// ===== 聖書箇所テキスト（2行表示） =====
+function rhtml(ds) {
+  const a = (D.r1[ds] || '').trim();
+  const b = (D.r2[ds] || '').trim();
+  if (a && b) return `<span style="display:block;white-space:nowrap">${a}</span><span style="display:block;white-space:nowrap">${b}</span>`;
+  if (a) return `<span style="white-space:nowrap">${a}</span>`;
+  if (b) return `<span style="white-space:nowrap">${b}</span>`;
+  return '';
+}
+
+// ===== 予定表生成 =====
+function generateSchedule() {
+  const year  = parseInt(document.getElementById('iy').value);
+  const month = parseInt(document.getElementById('im').value);
+  const ym    = `${year}/${String(month).padStart(2,'0')}`;
+
+  const praise = D.praise[ym] || D.praise[ymAlt(year,month)] || { s1:'（賛美未入力）', s2:'', s3:'' };
+  const target = D.target[ym] || D.target[ymAlt(year,month)] || '';
+  const pmtxt  = D.pm[ym]     || D.pm[ymAlt(year,month)]     || '20:00-22:00';
+  const days   = new Date(year, month, 0).getDate();
+  const fs     = findFirstSunday(year, month);
+
+  let h = `<div class="schedule-wrapper">
+  <div class="schedule-title">${year}年　${month}月　${CHURCH}月間予定表</div>
+  <div class="theme-verse">${year}年度　テーマ聖句<br>${THEME.replace('\n','<br>')}</div>`;
+
+  // 上部：賛美＋月初平日
+  h += `<table class="top-table"><tr>
+    <td class="praise-cell">
+      <div class="pt">今月の賛美</div>
+      ${praise.s1 ? praise.s1+'<br>':'' }${praise.s2 ? praise.s2+'<br>':'' }${praise.s3||''}
+    </td>
+    <td class="predays-cell"><table class="pre-table">`;
+
+  if (fs <= 1) {
+    h += `<tr><td colspan="3" style="padding:4px 6px;color:#999;font-size:.75rem;">（1日が日曜日です）</td></tr>`;
+  } else {
+    for (let d = 1; d < fs; d++) {
+      const ds  = fmt(year, month, d);
+      const dow = getDow(year, month, d);
+      const evt = (D.events[ds] || []).join('　');
+      const col = dow === 6 ? 'var(--sat-col)' : '#222';
+      h += `<tr>
+        <td class="dc" style="color:${col}">${d} ${dj(dow)}</td>
+        <td>${evt}</td>
+        <td class="rc">${rhtml(ds)}</td>
+      </tr>`;
+    }
+  }
+  h += `</table></td></tr></table>`;
+
+  h += `<div class="svc-info">◆日曜日　教会学校 9:15　主日礼拝 10:30</div>`;
+
+  // 週ブロック
+  let sun = fs, idx = 0;
+  while (sun <= days) {
+    idx++;
+    const ds      = fmt(year, month, sun);
+    const sv      = D.servants[ds] || {};
+    const evs     = D.events[ds]   || [];
+    const isFirst = (idx === 1);
+
+    // 日曜ヘッダー1行目：日付＋聖餐式＋その他行事
+    const topParts = [];
+    if (isFirst) topParts.push(`<span class="sp-tag">聖餐式</span>`);
+    for (const e of evs) topParts.push(`<span class="ev-tag">${e}</span>`);
+    const evStr = topParts.join('　');
+
+    // 日曜ヘッダー2行目：祈りと献金（あれば）
+    // cleanTargetで聖書箇所が混入していた場合も除去して表示
+    const cleanedTarget = cleanTarget(target);
+    const subLine = (isFirst && cleanedTarget)
+      ? `<div class="sunday-row-sub">●祈りと献金（${cleanedTarget}）</div>`
+      : '';
+
+    const sunReading = rhtml(ds);
+
+    h += `<div class="week-block">
+      <div class="week-left">
+        <div class="sunday-row">
+          <div class="sunday-row-top">
+            <span class="sd-num">${sun} 日</span>
+            <span class="sd-events">${evStr}</span>
+            <span class="sd-reading">${sunReading}</span>
+          </div>
+          ${subLine}
+        </div>
+        <table class="servant-table">`;
+
+    const roles = [['宣教',sv.宣教],['司会',sv.司会],['奏楽',sv.奏楽],['受付',sv.受付],['祈祷',sv.祈祷],['清掃',sv.清掃]];
+    if (isFirst) roles.splice(1, 0, ['配餐', sv.配餐]);
+    for (const [r, n] of roles) {
+      if (n === undefined) continue;
+      h += `<tr><td class="role">${r}</td><td>${n||''}</td></tr>`;
+    }
+    h += `</table></div>
+      <div class="week-right"><table class="wd-table">`;
+
+    for (let d = sun + 1; d <= Math.min(sun + 6, days); d++) {
+      const dds  = fmt(year, month, d);
+      const dow  = getDow(year, month, d);
+      const evts = (D.events[dds] || []).join('　');
+      const cls  = dow === 6 ? ' sat' : '';
+      h += `<tr>
+        <td class="dc${cls}">${d} ${dj(dow)}</td>
+        <td>${evts}</td>
+        <td class="rc">${rhtml(dds)}</td>
+      </tr>`;
+    }
+    h += `</table></div></div>`;
+    sun += 7;
+  }
+
+  // 祈祷会フッター：月内の行事に「祈祷会」が含まれるか自動判定
+  const hasPrayerMeeting = Object.entries(D.events).some(([dateKey, evList]) => {
+    // 同じ年月のキーかチェック
+    if (!dateKey.startsWith(ym)) return false;
+    return evList.some(e => e.includes('祈祷会'));
+  });
+  let ftext;
+  if (hasPrayerMeeting) {
+    // 祈祷会あり → 祈祷会シートから時間取得（なければデフォルト）
+    const pmTime = D.pm[ym] || D.pm[ymAlt(year,month)] || '20:00-22:00';
+    ftext = `祈祷会（水）　${pmTime}`;
+  } else {
+    // 祈祷会なし → お休み
+    ftext = '祈祷会（水）　お休み';
+  }
+  h += `<div class="footer-note">
+    <span>${ftext}</span>
+    <span>ともに祈る時間　水・土　20:00-22:00</span>
+  </div></div>`;
+
+  document.getElementById('preview-area').innerHTML = h;
+  setStatus('');
+}
+
+function fmt(y,m,d){ return `${y}/${String(m).padStart(2,'0')}/${String(d).padStart(2,'0')}`; }
+function ymAlt(y,m){ return `${y}/${m}`; } // ゼロなし年月（例:2026/5）
+function getDow(y,m,d){ return new Date(y,m-1,d).getDay(); }
+function dj(d){ return ['日','月','火','水','木','金','土'][d]; }
+function findFirstSunday(y,m){ for(let d=1;d<=7;d++) if(getDow(y,m,d)===0) return d; return 7; }
+function setStatus(msg){ document.getElementById('status').textContent=msg; }
+
+window.onload = () => useSampleData();
+</script>
+</body>
+</html>
